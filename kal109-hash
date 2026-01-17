@@ -1,0 +1,86 @@
+////aaronazzop////
+#include <stdint.h>
+
+// Kali09 Branded Constants - Derived from Cube Roots of Primes //
+#define KALI_IV0 0xb19275aa501b01e9ULL
+#define KALI_IV1 0x2205566085135111ULL
+#define KALI_IV2 0x05b2a0ca85b1a641ULL
+#define KALI_IV3 0x3344a67558ec400eULL
+#define KALI_IV4 0x546b412a83307527ULL
+#define KALI_IV5 0xABB25A2F2123992ULL
+#define KALI_IV6 0x1134a62587600863ULL
+#define KALI_IV7 0x7625892558f6022bULL
+
+#define ROUNDS 12
+
+// Kali09 Optimized Rotations: 31, 25, 15, 61 //
+static inline uint64_t rotl64(uint64_t x, unsigned r) {
+    return (x << r) | (x >> (64 - r));
+}
+
+/* Kali09 Mixing Function G */
+static void G(uint64_t *a, uint64_t *b, uint64_t *c, uint64_t *d, uint64_t x, uint64_t y) {
+    *a = *a + *b + x;
+    *d ^= *a; *d = rotl64(*d, 31); // Custom rotation 1
+
+    *c = *c + *d + y;
+    *b ^= *c; *b = rotl64(*b, 25); // Custom rotation 2
+
+    *a = *a + *b;
+    *d ^= *a; *d = rotl64(*d, 15); // Custom rotation 3
+
+    *c = *c + *d;
+    *b ^= *c; *b = rotl64(*b, 61); // Custom rotation 4
+}
+
+void kali09_compress(uint64_t H[8], const uint64_t M[16], uint64_t t_low, uint64_t t_high, uint64_t flags) {
+    uint64_t v[16];
+
+    // 1. Initialize v[0..7] from current chaining value
+    for (int i = 0; i < 8; i++) v[i] = H[i];
+
+    // 2. Initialize v[8..15] with Kali09-specific constants and counters
+    v[8]  = KALI_IV0 ^ t_low;
+    v[9]  = KALI_IV1 ^ t_high;
+    v[10] = KALI_IV2 ^ flags;
+    v[11] = KALI_IV3 ^ 0x4B414C493039ULL; // Hex for "KAL109"
+    v[12] = KALI_IV4;
+    v[13] = KALI_IV5;
+    v[14] = KALI_IV6;
+    v[15] = KALI_IV7;
+
+    // Standard SIGMA table can be used, or a custom Kali-shuffle
+    static const uint8_t K_SIGMA[12][16] = {
+        { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15 },
+        {14,10, 4, 8, 9,15,13, 6, 1,12, 0, 2,11, 7, 5, 3 },
+        {11, 8,12, 0, 5, 2,15,13,10,14, 3, 6, 7, 1, 9, 4 },
+        { 7, 9, 3, 1,13,12,11,14, 2, 6, 5,10, 4, 0,15, 8 },
+        { 9, 0, 5, 7, 2, 4,10,15,14, 1,11,12, 6, 8, 3,13 },
+        { 2,12, 6,10, 0,11, 8, 3, 4,13, 7, 5,15,14, 1, 9 },
+        {12, 5, 1,15,14,13, 4,10, 0, 7, 6, 3, 9, 2, 8,11 },
+        {13,11, 7,14,12, 1, 3, 9, 5, 0,15, 4, 8, 6, 2,10 },
+        { 6,15,14, 9,11, 3, 0, 8,12, 2,13, 7, 1, 4,10, 5 },
+        {10, 2, 8, 4, 7, 6, 1, 5,15,11, 9,14, 3,12,13, 0 },
+        { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15 },
+        {14,10, 4, 8, 9,15,13, 6, 1,12, 0, 2,11, 7, 5, 3 }
+    };
+
+    for (int r = 0; r < ROUNDS; r++) {
+        const uint8_t *s = K_SIGMA[r];
+        // Columns
+        G(&v[0], &v[4], &v[8],  &v[12], M[s[0]], M[s[1]]);
+        G(&v[1], &v[5], &v[9],  &v[13], M[s[2]], M[s[3]]);
+        G(&v[2], &v[6], &v[10], &v[14], M[s[4]], M[s[5]]);
+        G(&v[3], &v[7], &v[11], &v[15], M[s[6]], M[s[7]]);
+        // Diagonals
+        G(&v[0], &v[5], &v[10], &v[15], M[s[8]],  M[s[9]]);
+        G(&v[1], &v[6], &v[11], &v[12], M[s[10]], M[s[11]]);
+        G(&v[2], &v[7], &v[8],  &v[13], M[s[12]], M[s[13]]);
+        G(&v[3], &v[4], &v[9],  &v[14], M[s[14]], M[s[15]]);
+    }
+
+    // Chaining finalization
+    for (int i = 0; i < 8; i++) {
+        H[i] ^= v[i] ^ v[i + 8];
+    }
+}
